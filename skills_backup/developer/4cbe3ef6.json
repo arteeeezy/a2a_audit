@@ -1,0 +1,14 @@
+{
+  "id": "4cbe3ef6",
+  "task_type": "Virtual Environments and Package Management",
+  "agent": "developer",
+  "steps": [],
+  "template": "",
+  "notes": "Introduction to virtual environments, creating virtual environments for project isolation, and managing packages with pip for dependency management. Essential for maintaining clean project dependencies and avoiding conflicts.",
+  "source": "web_learning",
+  "source_url": "https://docs.python.org/3/tutorial/index.html",
+  "created_at": "2026-03-29T20:42:09.587812",
+  "usage_count": 0,
+  "success_count": 0,
+  "total_uses": 0
+}

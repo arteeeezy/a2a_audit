@@ -1,0 +1,14 @@
+{
+  "id": "7b4f65e4",
+  "task_type": "Using the Python Interpreter",
+  "agent": "developer",
+  "steps": [],
+  "template": "",
+  "notes": "This section covers invoking the Python interpreter, passing arguments to Python scripts, using interactive mode for testing code snippets, and understanding the interpreter environment including source code encoding settings.",
+  "source": "web_learning",
+  "source_url": "https://docs.python.org/3/tutorial/index.html",
+  "created_at": "2026-03-29T20:42:09.504794",
+  "usage_count": 0,
+  "success_count": 0,
+  "total_uses": 0
+}

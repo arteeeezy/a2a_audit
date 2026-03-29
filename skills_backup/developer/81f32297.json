@@ -1,0 +1,14 @@
+{
+  "id": "81f32297",
+  "task_type": "Standard Library Tour",
+  "agent": "developer",
+  "steps": [],
+  "template": "",
+  "notes": "Two-part tour covering: operating system interface, file wildcards, command-line arguments, error output redirection, string pattern matching, mathematics, internet access, dates and times, data compression, performance measurement, quality control, output formatting, templating, binary data layouts, multi-threading, logging, weak references, list tools, and decimal arithmetic.",
+  "source": "web_learning",
+  "source_url": "https://docs.python.org/3/tutorial/index.html",
+  "created_at": "2026-03-29T20:42:09.579388",
+  "usage_count": 0,
+  "success_count": 0,
+  "total_uses": 0
+}

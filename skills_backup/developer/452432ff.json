@@ -1,0 +1,20 @@
+{
+  "id": "452432ff",
+  "task_type": "Explain Code - Visual Code Explanation",
+  "agent": "developer",
+  "steps": [
+    "Start with an analogy - Compare code to everyday life concepts",
+    "Draw a diagram - Use ASCII art to show flow, structure, or relationships",
+    "Walk through the code - Step-by-step explanation",
+    "Highlight a gotcha - Common mistakes or misconceptions",
+    "Create directory: ~/.claude/skills/explain-code"
+  ],
+  "template": "",
+  "notes": "Usage: /explain-code or automatically triggered when asking how code works\n\nStructure:\n1. Start with an analogy - Compare code to everyday life concepts\n2. Draw a diagram - Use ASCII art to show flow, structure, or relationships\n3. Walk through the code - Step-by-step explanation\n4. Highlight a gotcha - Common mistakes or misconceptions\n\nStyle: Conversational explanations, multiple analogies for complex concepts\n\nExample setup:\n- Create directory: ~/.claude/skills/explain-code\n- Create SKILL.md with frontmatter and instructions\n- Test by asking 'How does this code work?' or using /explain-code src/auth/login.ts",
+  "source": "web_learning",
+  "source_url": "https://code.claude.com/docs/en/skills",
+  "created_at": "2026-03-29T20:56:01.679387",
+  "usage_count": 0,
+  "success_count": 0,
+  "total_uses": 0
+}

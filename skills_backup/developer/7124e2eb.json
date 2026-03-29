@@ -1,0 +1,20 @@
+{
+  "id": "7124e2eb",
+  "task_type": "Batch - Large-scale Codebase Changes",
+  "agent": "developer",
+  "steps": [
+    "Researches the codebase",
+    "Decomposes work into 5 to 30 independent units",
+    "Presents a plan for approval",
+    "Spawns one background agent per unit in isolated git worktree",
+    "Each agent implements its unit, runs tests, and opens a pull request"
+  ],
+  "template": "",
+  "notes": "Usage: /batch <instruction>\n\nProcess:\n1. Researches the codebase\n2. Decomposes work into 5 to 30 independent units\n3. Presents a plan for approval\n4. Spawns one background agent per unit in isolated git worktree\n5. Each agent implements its unit, runs tests, and opens a pull request\n\nRequirements: Git repository\n\nExample: /batch migrate src/ from Solid to React",
+  "source": "web_learning",
+  "source_url": "https://code.claude.com/docs/en/skills",
+  "created_at": "2026-03-29T20:56:01.630613",
+  "usage_count": 0,
+  "success_count": 0,
+  "total_uses": 0
+}

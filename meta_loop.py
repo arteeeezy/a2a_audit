@@ -6,21 +6,29 @@ meta_loop.py — HyperAgent 元循环
   - Archive             → prompt_store.json 的 history 列表
   - Eval results        → eval_log.jsonl
   - Persistent memory   → memory.json（成功/失败案例）
+  - Skills library      → skills/（可复用的成功经验）
 """
 import json
 import os
 import asyncio
+import uuid
 from datetime import datetime
 
 PROMPT_STORE_PATH = "D:/a2a-agents/prompt_store.json"
 EVAL_LOG_PATH     = "D:/a2a-agents/eval_log.jsonl"
 MEMORY_PATH       = "D:/a2a-agents/memory.json"
+SKILLS_DIR        = "D:/a2a-agents/skills"
 META_TRIGGER_N      = 5    # 每累计 N 次审核通过后触发一次元循环
 SCORE_THRESHOLD     = 0.75 # 低于此分才触发 prompt 优化
 META_META_TRIGGER_N = 3    # 每触发 N 次元循环后，执行一次元认知自我修改
 META_PROMPT_STORE   = "D:/a2a-agents/meta_prompt_store.json"
 
 _meta_loop_count = 0  # 当前进程内元循环触发次数
+
+# 确保技能库目录存在
+os.makedirs(SKILLS_DIR, exist_ok=True)
+for agent_dir in ["captain", "pm", "researcher", "analyst", "developer", "auditor"]:
+    os.makedirs(os.path.join(SKILLS_DIR, agent_dir), exist_ok=True)
 
 # ── Prompt Store ──────────────────────────────────────────
 
@@ -370,3 +378,279 @@ async def _run_meta_meta_loop(ai_client, notify_fn=None):
     except Exception as e:
         if notify_fn:
             await notify_fn(f"⚠️ Meta-Meta Loop 失败：{e}")
+
+
+# ── Skills Library ────────────────────────────────────────
+
+async def extract_skill(
+    task_id: str,
+    agent: str,
+    instruction: str,
+    result: str,
+    ai_client,
+    notify_fn=None
+) -> str:
+    """
+    从成功案例中提取可复用的技能
+    
+    Args:
+        task_id: 任务ID
+        agent: Agent名称
+        instruction: 任务描述
+        result: 解决方案
+        ai_client: AI客户端
+        notify_fn: 通知函数
+    
+    Returns:
+        技能文件路径
+    """
+    extraction_prompt = f"""分析以下成功完成的任务，提取可复用的解决模式。
+
+任务类型：{agent.upper()}
+任务描述：{instruction[:500]}
+解决方案：{result[:1000]}
+
+请提取：
+1. task_type: 任务类型（如"API集成"、"数据分析"、"代码审查"等，简短精确）
+2. steps: 关键步骤（3-5个要点，每个要点一句话）
+3. template: 可复用的代码片段或解决方案模板（如果适用）
+4. notes: 注意事项和最佳实践
+
+输出严格的 JSON 格式，不要任何其他文字：
+{{
+  "task_type": "任务类型",
+  "steps": ["步骤1", "步骤2", "步骤3"],
+  "template": "模板内容（如无则为空字符串）",
+  "notes": "注意事项"
+}}"""
+
+    try:
+        resp = await asyncio.to_thread(
+            ai_client.chat.completions.create,
+            model=os.getenv("AI_MODEL", "qwen-max"),
+            messages=[{"role": "user", "content": extraction_prompt}],
+            temperature=0.3,
+        )
+        content = resp.choices[0].message.content.strip()
+        
+        # 尝试解析 JSON（可能包含 markdown 代码块）
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        
+        skill_data = json.loads(content)
+        
+        # 构建完整的技能记录
+        skill_id = uuid.uuid4().hex[:8]
+        skill = {
+            "id": skill_id,
+            "task_type": skill_data.get("task_type", "未分类"),
+            "agent": agent,
+            "steps": skill_data.get("steps", []),
+            "template": skill_data.get("template", ""),
+            "notes": skill_data.get("notes", ""),
+            "source_task_id": task_id,
+            "created_at": datetime.now().isoformat(),
+            "usage_count": 0,
+            "success_count": 0,
+            "total_uses": 0,
+        }
+        
+        # 保存到文件
+        skill_path = os.path.join(SKILLS_DIR, agent, f"{skill_id}.json")
+        with open(skill_path, "w", encoding="utf-8") as f:
+            json.dump(skill, f, ensure_ascii=False, indent=2)
+        
+        if notify_fn:
+            await notify_fn(
+                f"📚 **[{agent.upper()}]** 提取新技能：{skill['task_type']} (ID: {skill_id})"
+            )
+        
+        return skill_path
+        
+    except Exception as e:
+        if notify_fn:
+            await notify_fn(f"⚠️ 技能提取失败 [{agent.upper()}]：{e}")
+        return ""
+
+
+def retrieve_relevant_skills(agent: str, instruction: str, top_k: int = 3) -> list:
+    """
+    检索与当前任务相关的技能
+    
+    Args:
+        agent: Agent名称
+        instruction: 任务描述
+        top_k: 返回前k个最相关的技能
+    
+    Returns:
+        技能列表
+    """
+    agent_skills_dir = os.path.join(SKILLS_DIR, agent)
+    if not os.path.exists(agent_skills_dir):
+        return []
+    
+    all_skills = []
+    
+    # 加载该 agent 的所有技能
+    for filename in os.listdir(agent_skills_dir):
+        if filename.endswith(".json"):
+            try:
+                with open(os.path.join(agent_skills_dir, filename), encoding="utf-8") as f:
+                    skill = json.load(f)
+                    all_skills.append(skill)
+            except Exception:
+                continue
+    
+    if not all_skills:
+        return []
+    
+    # 简单的关键词匹配评分（TODO: 未来可以使用 embedding 向量相似度）
+    instruction_lower = instruction.lower()
+    scored_skills = []
+    
+    for skill in all_skills:
+        score = 0.0
+        task_type_lower = skill.get("task_type", "").lower()
+        
+        # 任务类型匹配
+        if task_type_lower in instruction_lower:
+            score += 10.0
+        
+        # 关键词匹配
+        for word in task_type_lower.split():
+            if len(word) > 2 and word in instruction_lower:
+                score += 2.0
+        
+        # 步骤关键词匹配
+        for step in skill.get("steps", []):
+            step_lower = step.lower()
+            for word in step_lower.split():
+                if len(word) > 3 and word in instruction_lower:
+                    score += 0.5
+        
+        # 使用频率加权（使用越多，越可能有用）
+        usage_count = skill.get("usage_count", 0)
+        if usage_count > 0:
+            success_rate = skill.get("success_count", 0) / usage_count
+            score += success_rate * 3.0
+        
+        scored_skills.append((score, skill))
+    
+    # 排序并返回 top-k
+    scored_skills.sort(reverse=True, key=lambda x: x[0])
+    return [skill for score, skill in scored_skills[:top_k] if score > 0]
+
+
+def inject_skills_to_prompt(base_prompt: str, skills: list) -> str:
+    """
+    将技能注入到 agent 的系统提示词中
+    
+    Args:
+        base_prompt: 基础系统提示词
+        skills: 技能列表
+    
+    Returns:
+        注入技能后的提示词
+    """
+    if not skills:
+        return base_prompt
+    
+    skills_section = "\n\n" + "="*60 + "\n"
+    skills_section += "📚 **相关经验参考**（来自历史成功案例）\n"
+    skills_section += "="*60 + "\n\n"
+    skills_section += "以下是类似任务的成功经验，供参考：\n\n"
+    
+    for i, skill in enumerate(skills, 1):
+        skills_section += f"### 经验 {i}：{skill.get('task_type', '未分类')}\n\n"
+        
+        steps = skill.get("steps", [])
+        if steps:
+            skills_section += "**关键步骤**：\n"
+            for step in steps:
+                skills_section += f"- {step}\n"
+            skills_section += "\n"
+        
+        template = skill.get("template", "")
+        if template:
+            skills_section += f"**参考模板**：\n```\n{template}\n```\n\n"
+        
+        notes = skill.get("notes", "")
+        if notes:
+            skills_section += f"**注意事项**：{notes}\n\n"
+        
+        usage_info = skill.get("usage_count", 0)
+        if usage_info > 0:
+            success_rate = skill.get("success_count", 0) / usage_info
+            skills_section += f"*（此经验已被使用 {usage_info} 次，成功率 {success_rate:.0%}）*\n\n"
+        
+        skills_section += "---\n\n"
+    
+    return base_prompt + skills_section
+
+
+def update_skill_usage(skill_id: str, agent: str, success: bool):
+    """
+    更新技能的使用统计
+    
+    Args:
+        skill_id: 技能ID
+        agent: Agent名称
+        success: 是否成功
+    """
+    skill_path = os.path.join(SKILLS_DIR, agent, f"{skill_id}.json")
+    if not os.path.exists(skill_path):
+        return
+    
+    try:
+        with open(skill_path, "r", encoding="utf-8") as f:
+            skill = json.load(f)
+        
+        skill["usage_count"] = skill.get("usage_count", 0) + 1
+        skill["total_uses"] = skill.get("total_uses", 0) + 1
+        if success:
+            skill["success_count"] = skill.get("success_count", 0) + 1
+        
+        skill["last_used"] = datetime.now().isoformat()
+        
+        with open(skill_path, "w", encoding="utf-8") as f:
+            json.dump(skill, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def cleanup_low_quality_skills(min_uses: int = 5, min_success_rate: float = 0.3):
+    """
+    清理低质量的技能
+    
+    Args:
+        min_uses: 最少使用次数阈值
+        min_success_rate: 最低成功率阈值
+    """
+    removed_count = 0
+    
+    for agent_dir in os.listdir(SKILLS_DIR):
+        agent_path = os.path.join(SKILLS_DIR, agent_dir)
+        if not os.path.isdir(agent_path):
+            continue
+        
+        for filename in os.listdir(agent_path):
+            if not filename.endswith(".json"):
+                continue
+            
+            skill_path = os.path.join(agent_path, filename)
+            try:
+                with open(skill_path, "r", encoding="utf-8") as f:
+                    skill = json.load(f)
+                
+                usage_count = skill.get("usage_count", 0)
+                if usage_count >= min_uses:
+                    success_rate = skill.get("success_count", 0) / usage_count
+                    if success_rate < min_success_rate:
+                        os.remove(skill_path)
+                        removed_count += 1
+            except Exception:
+                continue
+    
+    return removed_count

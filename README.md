@@ -9,6 +9,7 @@
 - 🔄 **元循环优化**：自动评估和优化 Agent 提示词
 - 📊 **结果追踪**：自动保存任务执行结果和分析报告
 - 🧠 **记忆系统**：支持任务历史记忆和上下文管理
+- 🆕 **HyperAgents 技能库**：自动提取成功经验并智能复用（基于 Meta AI 论文）
 
 ## 项目结构
 
@@ -62,8 +63,20 @@ python main.py
 
 在 Discord 频道中使用以下命令与 Bot 交互：
 
+**任务管理**：
 - 直接发送任务描述，Bot 会自动分配给合适的 Agent 处理
 - 支持多轮对话和任务追踪
+
+**🆕 技能管理**：
+- `!learn_skills <网站URL>` - 从网站学习技能（Captain 自动分析和分配）
+- `!list_skills` - 查看所有 Agent 的技能统计
+- `!list_skills <agent>` - 查看指定 Agent 的技能详情
+
+**示例**：
+```
+!learn_skills https://docs.example.com/skills
+!list_skills developer
+```
 
 ## Agent 角色说明
 
@@ -82,6 +95,38 @@ python main.py
 - 评估 Agent 输出质量
 - 生成优化建议
 - 更新 Agent 提示词
+
+## 🆕 HyperAgents 技能库系统
+
+基于 [Meta AI HyperAgents 论文](https://ai.meta.com/research/publications/hyperagents/) 实现的智能技能管理系统：
+
+### 核心功能
+
+- **自动技能提取** 🧠：从成功案例中自动提取可复用的经验
+- **智能检索** 🔍：根据任务描述自动检索相关技能
+- **动态注入** 💉：将相关技能注入到 Agent 的系统提示词中
+- **使用统计** 📊：跟踪每个技能的使用次数和成功率
+- **质量管理** 🧹：自动清理低质量技能
+
+### 工作流程
+
+1. Agent 执行任务时，自动检索相关技能并注入到 Prompt
+2. 任务完成后，Auditor 审核
+3. 审核通过且重试次数 ≤ 1 时，自动提取新技能
+4. 更新技能使用统计（成功/失败）
+5. 定期清理低质量技能
+
+### 详细文档
+
+- 📚 [技能库系统使用指南](docs/HYPERAGENTS_SKILLS.md)
+- 📄 [HyperAgents 详细分析](plans/hyperagents_analysis.md)
+- 📋 [实施计划](plans/hyperagents_implementation_plan.md)
+
+### 测试
+
+```bash
+python test_skills.py
+```
 
 ## 配置说明
 

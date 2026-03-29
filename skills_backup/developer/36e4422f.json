@@ -1,0 +1,19 @@
+{
+  "id": "36e4422f",
+  "task_type": "Debug - Session Troubleshooting",
+  "agent": "developer",
+  "steps": [
+    "Enables debug logging for current session",
+    "Debug logging is off by default unless started with claude --debug",
+    "Captures logs from invocation point forward",
+    "Optional description parameter to focus analysis on specific issues"
+  ],
+  "template": "",
+  "notes": "Usage: /debug [description]\n\nFeatures:\n- Enables debug logging for current session\n- Debug logging is off by default unless started with claude --debug\n- Captures logs from invocation point forward\n- Optional description parameter to focus analysis on specific issues",
+  "source": "web_learning",
+  "source_url": "https://code.claude.com/docs/en/skills",
+  "created_at": "2026-03-29T20:56:01.652565",
+  "usage_count": 0,
+  "success_count": 0,
+  "total_uses": 0
+}

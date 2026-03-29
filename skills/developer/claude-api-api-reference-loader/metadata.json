@@ -1,0 +1,11 @@
+{
+  "id": "claude-api-api-reference-loader",
+  "name": "claude-api-api-reference-loader",
+  "agent": "developer",
+  "created_at": "2026-03-29T20:56:01.641523",
+  "source": "web_learning",
+  "source_url": "https://code.claude.com/docs/en/skills",
+  "usage_count": 0,
+  "success_count": 0,
+  "last_used": null
+}

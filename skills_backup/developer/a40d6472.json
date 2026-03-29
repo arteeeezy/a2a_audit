@@ -1,0 +1,19 @@
+{
+  "id": "a40d6472",
+  "task_type": "Claude API - API Reference Loader",
+  "agent": "developer",
+  "steps": [
+    "Loads API reference for Python, TypeScript, Java, Go, Ruby, C#, PHP, or cURL",
+    "Includes Agent SDK reference for Python and TypeScript",
+    "Covers tool use, streaming, batches, structured outputs, and common pitfalls",
+    "Activates automatically when code imports anthropic, @anthropic-ai/sdk, or claude_agent_sdk"
+  ],
+  "template": "",
+  "notes": "Usage: /claude-api\n\nFeatures:\n- Loads API reference for Python, TypeScript, Java, Go, Ruby, C#, PHP, or cURL\n- Includes Agent SDK reference for Python and TypeScript\n- Covers tool use, streaming, batches, structured outputs, and common pitfalls\n- Activates automatically when code imports anthropic, @anthropic-ai/sdk, or claude_agent_sdk",
+  "source": "web_learning",
+  "source_url": "https://code.claude.com/docs/en/skills",
+  "created_at": "2026-03-29T20:56:01.641523",
+  "usage_count": 0,
+  "success_count": 0,
+  "total_uses": 0
+}

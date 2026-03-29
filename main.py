@@ -15,7 +15,11 @@ load_dotenv()
 from meta_loop import (
     load_agent_prompt, log_eval, save_memory,
     should_trigger_meta, run_meta_loop,
+    retrieve_relevant_skills, inject_skills_to_prompt,
+    update_skill_usage, extract_skill,
 )
+
+from skill_web_learning import learn_skills_from_website
 
 if sys.platform == "win32" and sys.version_info < (3, 16):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -106,6 +110,9 @@ async def send_to_relay(guild, from_agent, to_agent, task_id, instruction, resul
 #   · Skill 以独立 system message 注入，不污染 base system prompt
 
 _skill_cache: dict[str, str] = {}  # key: "{agent}/{skill_name}" → body text
+
+# 🆕 HyperAgents: 跟踪每个任务使用的技能ID（用于统计）
+_task_skills: dict[str, dict] = {}  # key: "{task_id}_{agent}" → {"skill_ids": [...], "instruction": "...", "result": "..."}
 
 def _skill_dir(agent_name: str) -> str:
     return os.path.join(SKILLS_DIR, agent_name)
@@ -549,6 +556,78 @@ def make_captain():
         if message.author == client.user:
             return
 
+        # 🆕 HyperAgents: 学习技能命令
+        if message.content.startswith("!learn_skills "):
+            url = message.content[14:].strip()
+            
+            if not url.startswith("http"):
+                await message.channel.send("❌ 请提供有效的 URL（以 http:// 或 https:// 开头）")
+                return
+            
+            async def notify(msg):
+                await safe_send(message.channel, msg)
+            
+            try:
+                stats = await learn_skills_from_website(url, ai, notify)
+            except Exception as e:
+                await message.channel.send(f"❌ 学习失败：{e}")
+            
+            return
+        
+        # 🆕 HyperAgents: 查看技能命令
+        if message.content.startswith("!list_skills"):
+            parts = message.content.split()
+            agent = parts[1] if len(parts) > 1 else None
+            
+            if agent:
+                # 列出指定 agent 的技能
+                agent_dir = os.path.join(SKILLS_DIR, agent)
+                if not os.path.exists(agent_dir):
+                    await message.channel.send(f"❌ Agent '{agent}' 不存在")
+                    return
+                
+                skills = []
+                for filename in os.listdir(agent_dir):
+                    if filename.endswith(".json"):
+                        try:
+                            with open(os.path.join(agent_dir, filename), "r", encoding="utf-8") as f:
+                                skill = json.load(f)
+                                skills.append(skill)
+                        except Exception:
+                            continue
+                
+                if not skills:
+                    await message.channel.send(f"📚 {agent.upper()} 还没有技能")
+                    return
+                
+                # 按使用次数排序
+                skills.sort(key=lambda s: s.get('usage_count', 0), reverse=True)
+                
+                response = f"📚 {agent.upper()} 的技能库（共 {len(skills)} 个技能）：\n\n"
+                for i, skill in enumerate(skills[:10], 1):  # 只显示前10个
+                    usage = skill.get('usage_count', 0)
+                    success = skill.get('success_count', 0)
+                    rate = f"{success/max(usage, 1):.0%}" if usage > 0 else "N/A"
+                    response += f"{i}. {skill['task_type']} (ID: {skill['id']})\n"
+                    response += f"   使用次数: {usage}, 成功率: {rate}\n\n"
+                
+                if len(skills) > 10:
+                    response += f"... 还有 {len(skills) - 10} 个技能"
+                
+                await safe_send(message.channel, response)
+            else:
+                # 列出所有 agent 的技能统计
+                response = "📚 技能库统计：\n\n"
+                for agent_name in ["captain", "pm", "researcher", "analyst", "developer", "auditor"]:
+                    agent_dir = os.path.join(SKILLS_DIR, agent_name)
+                    if os.path.exists(agent_dir):
+                        count = len([f for f in os.listdir(agent_dir) if f.endswith(".json")])
+                        response += f"- {agent_name.upper()}: {count} 个技能\n"
+                
+                await message.channel.send(response)
+            
+            return
+
         # ── completed-tasks 监听，用于汇总 ─────────────────────────────
         if message.channel.name == "completed-tasks":
             # 期望格式含标记：[COMPLETE|task_id|agent_name]
@@ -715,7 +794,18 @@ def make_worker(agent_name):
 
         # 按需加载 skill，作为独立 system message 注入（不污染 base system prompt）
         # 节省 token：只加载本次任务指定的 skill，其余 skill body 不消耗任何 token
-        messages = [{"role": "system", "content": load_agent_prompt(agent_name, config["system"])}]
+        base_prompt = load_agent_prompt(agent_name, config["system"])
+        
+        # 🆕 HyperAgents: 自动检索相关技能并注入
+        relevant_skills = retrieve_relevant_skills(agent_name, instruction, top_k=3)
+        if relevant_skills:
+            base_prompt = inject_skills_to_prompt(base_prompt, relevant_skills)
+            # 记录使用的技能ID，用于后续更新统计
+            used_skill_ids = [skill["id"] for skill in relevant_skills]
+        else:
+            used_skill_ids = []
+        
+        messages = [{"role": "system", "content": base_prompt}]
         if skill_keys:
             skills_ctx = build_skills_context(agent_name, skill_keys)
             if skills_ctx:
@@ -742,7 +832,17 @@ def make_worker(agent_name):
             error_ch = discord.utils.get(message.guild.channels, name="error-log")
             if error_ch:
                 await error_ch.send(f"**[{task_id}] {agent_name.upper()} 执行失败**\n{result}")
+            # 🆕 HyperAgents: 更新失败的技能统计
+            for skill_id in used_skill_ids:
+                update_skill_usage(skill_id, agent_name, success=False)
             return
+
+        # 🆕 HyperAgents: 保存任务信息（用于审核通过后提取技能）
+        _task_skills[f"{task_id}_{agent_name}"] = {
+            "skill_ids": used_skill_ids,
+            "instruction": instruction,
+            "result": result
+        }
 
         await update_task_status(message.guild, task_id, agent_name, f"✅ 完成，发往 Auditor 审核")
         await send_to_relay(
@@ -859,6 +959,29 @@ def make_auditor():
             log_eval(task_id, from_agent, success=True, retries=final_retries,
                      instruction_preview=instruction[:120])
             save_memory(task_id, from_agent, instruction, retries=final_retries, success=True)
+
+            # 🆕 HyperAgents: 技能统计更新 + 技能提取
+            task_key = f"{task_id}_{from_agent}"
+            if task_key in _task_skills:
+                task_info = _task_skills.pop(task_key)
+                
+                # 更新使用的技能统计（成功）
+                for skill_id in task_info["skill_ids"]:
+                    update_skill_usage(skill_id, from_agent, success=True)
+                
+                # 如果是高质量案例（重试次数少），提取新技能
+                if final_retries <= 1:
+                    asyncio.create_task(extract_skill(
+                        task_id=task_id,
+                        agent=from_agent,
+                        instruction=task_info["instruction"],
+                        result=task_info["result"],
+                        ai_client=ai,
+                        notify_fn=lambda msg: safe_send(
+                            discord.utils.get(message.guild.channels, name="meta-log"),
+                            msg
+                        ) if discord.utils.get(message.guild.channels, name="meta-log") else asyncio.sleep(0)
+                    ))
 
             # 每 META_TRIGGER_N 次通过后触发元循环
             if should_trigger_meta():

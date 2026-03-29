@@ -1,0 +1,18 @@
+{
+  "id": "test_001",
+  "task_type": "Discord Bot 命令处理",
+  "agent": "developer",
+  "steps": [
+    "解析用户输入的命令和参数",
+    "验证参数有效性",
+    "调用相应的处理函数",
+    "格式化输出结果"
+  ],
+  "template": "async def handle_command(ctx, *args): ...",
+  "notes": "注意异常处理和用户友好的错误提示",
+  "source_task_id": "test_task",
+  "created_at": "2026-03-29T19:00:00",
+  "usage_count": 3,
+  "success_count": 2,
+  "total_uses": 3
+}
