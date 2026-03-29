@@ -441,33 +441,85 @@ async def extract_skill(
         
         skill_data = json.loads(content)
         
-        # 构建完整的技能记录
-        skill_id = uuid.uuid4().hex[:8]
-        skill = {
-            "id": skill_id,
-            "task_type": skill_data.get("task_type", "未分类"),
+        # 生成技能名称（符合 Claude Code 标准：小写、连字符、最多64字符）
+        task_type = skill_data.get("task_type", "未分类")
+        skill_name = task_type.lower().replace(' ', '-').replace('_', '-')
+        skill_name = ''.join(c for c in skill_name if c.isalnum() or c == '-')
+        skill_name = skill_name[:64]  # 最多64字符
+        
+        # 创建技能目录（Claude Code 标准格式）
+        skill_dir = os.path.join(SKILLS_DIR, agent, skill_name)
+        
+        # 如果目录已存在，添加后缀
+        if os.path.exists(skill_dir):
+            counter = 1
+            while os.path.exists(f"{skill_dir}-{counter}"):
+                counter += 1
+            skill_dir = f"{skill_dir}-{counter}"
+            skill_name = f"{skill_name}-{counter}"
+        
+        os.makedirs(skill_dir, exist_ok=True)
+        os.makedirs(os.path.join(skill_dir, "examples"), exist_ok=True)
+        
+        # 创建 SKILL.md（Claude Code 标准格式）
+        steps_text = ""
+        if skill_data.get("steps"):
+            steps_text = "\n\n## Steps\n\n"
+            steps_text += "\n".join(f"{i+1}. {step}" for i, step in enumerate(skill_data["steps"]))
+        
+        template_section = ""
+        if skill_data.get("template"):
+            template_section = f"\n\n## Template\n\n```\n{skill_data['template']}\n```"
+        
+        notes_section = ""
+        if skill_data.get("notes"):
+            notes_section = f"\n\n## Notes\n\n{skill_data['notes']}"
+        
+        skill_md_content = f"""---
+name: {skill_name}
+description: {task_type[:250]}
+---
+
+# {task_type}
+
+从任务 {task_id} 中提取的成功经验。
+{steps_text}
+{template_section}
+{notes_section}
+"""
+        
+        skill_md_path = os.path.join(skill_dir, "SKILL.md")
+        with open(skill_md_path, "w", encoding="utf-8") as f:
+            f.write(skill_md_content)
+        
+        # 创建 template.md（如果有独立模板）
+        if skill_data.get("template"):
+            template_path = os.path.join(skill_dir, "template.md")
+            with open(template_path, "w", encoding="utf-8") as f:
+                f.write(skill_data["template"])
+        
+        # 创建 metadata.json
+        metadata = {
+            "id": skill_name,
+            "name": skill_name,
             "agent": agent,
-            "steps": skill_data.get("steps", []),
-            "template": skill_data.get("template", ""),
-            "notes": skill_data.get("notes", ""),
             "source_task_id": task_id,
             "created_at": datetime.now().isoformat(),
             "usage_count": 0,
             "success_count": 0,
-            "total_uses": 0,
+            "last_used": None
         }
         
-        # 保存到文件
-        skill_path = os.path.join(SKILLS_DIR, agent, f"{skill_id}.json")
-        with open(skill_path, "w", encoding="utf-8") as f:
-            json.dump(skill, f, ensure_ascii=False, indent=2)
+        metadata_path = os.path.join(skill_dir, "metadata.json")
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
         
         if notify_fn:
             await notify_fn(
-                f"📚 **[{agent.upper()}]** 提取新技能：{skill['task_type']} (ID: {skill_id})"
+                f"📚 **[{agent.upper()}]** 提取新技能：{task_type} ({skill_name})"
             )
         
-        return skill_path
+        return skill_dir
         
     except Exception as e:
         if notify_fn:
@@ -493,15 +545,54 @@ def retrieve_relevant_skills(agent: str, instruction: str, top_k: int = 3) -> li
     
     all_skills = []
     
-    # 加载该 agent 的所有技能
-    for filename in os.listdir(agent_skills_dir):
-        if filename.endswith(".json"):
-            try:
-                with open(os.path.join(agent_skills_dir, filename), encoding="utf-8") as f:
-                    skill = json.load(f)
-                    all_skills.append(skill)
-            except Exception:
+    # 加载该 agent 的所有技能（新格式：目录结构）
+    for skill_name in os.listdir(agent_skills_dir):
+        skill_dir = os.path.join(agent_skills_dir, skill_name)
+        if not os.path.isdir(skill_dir):
+            continue
+        
+        try:
+            # 读取 SKILL.md
+            skill_md_path = os.path.join(skill_dir, "SKILL.md")
+            if not os.path.exists(skill_md_path):
                 continue
+            
+            with open(skill_md_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # 解析 frontmatter
+            frontmatter = {}
+            skill_content = content
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    import re
+                    for line in parts[1].splitlines():
+                        m = re.match(r"^(\w[\w-]*):\s*(.+)$", line.strip())
+                        if m:
+                            frontmatter[m.group(1)] = m.group(2).strip()
+                    skill_content = parts[2].strip()
+            
+            # 读取 metadata.json
+            metadata_path = os.path.join(skill_dir, "metadata.json")
+            metadata = {}
+            if os.path.exists(metadata_path):
+                with open(metadata_path, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+            
+            # 构建技能对象
+            skill = {
+                "id": skill_name,
+                "name": frontmatter.get("name", skill_name),
+                "description": frontmatter.get("description", ""),
+                "content": skill_content,
+                "usage_count": metadata.get("usage_count", 0),
+                "success_count": metadata.get("success_count", 0),
+            }
+            
+            all_skills.append(skill)
+        except Exception:
+            continue
     
     if not all_skills:
         return []
@@ -512,23 +603,22 @@ def retrieve_relevant_skills(agent: str, instruction: str, top_k: int = 3) -> li
     
     for skill in all_skills:
         score = 0.0
-        task_type_lower = skill.get("task_type", "").lower()
+        description_lower = skill.get("description", "").lower()
+        content_lower = skill.get("content", "").lower()
         
-        # 任务类型匹配
-        if task_type_lower in instruction_lower:
+        # 描述匹配（权重最高）
+        if description_lower in instruction_lower:
             score += 10.0
         
         # 关键词匹配
-        for word in task_type_lower.split():
+        for word in description_lower.split():
             if len(word) > 2 and word in instruction_lower:
                 score += 2.0
         
-        # 步骤关键词匹配
-        for step in skill.get("steps", []):
-            step_lower = step.lower()
-            for word in step_lower.split():
-                if len(word) > 3 and word in instruction_lower:
-                    score += 0.5
+        # 内容关键词匹配
+        for word in content_lower.split():
+            if len(word) > 4 and word in instruction_lower:
+                score += 0.3
         
         # 使用频率加权（使用越多，越可能有用）
         usage_count = skill.get("usage_count", 0)
@@ -558,32 +648,27 @@ def inject_skills_to_prompt(base_prompt: str, skills: list) -> str:
         return base_prompt
     
     skills_section = "\n\n" + "="*60 + "\n"
-    skills_section += "📚 **相关经验参考**（来自历史成功案例）\n"
+    skills_section += "# Available Skills\n"
     skills_section += "="*60 + "\n\n"
-    skills_section += "以下是类似任务的成功经验，供参考：\n\n"
+    skills_section += "You have access to the following skills from past successful cases:\n\n"
     
     for i, skill in enumerate(skills, 1):
-        skills_section += f"### 经验 {i}：{skill.get('task_type', '未分类')}\n\n"
+        skill_name = skill.get('name', skill.get('id', '未知'))
+        description = skill.get('description', '')
+        content = skill.get('content', '')
         
-        steps = skill.get("steps", [])
-        if steps:
-            skills_section += "**关键步骤**：\n"
-            for step in steps:
-                skills_section += f"- {step}\n"
-            skills_section += "\n"
+        skills_section += f"## Skill {i}: {skill_name}\n\n"
         
-        template = skill.get("template", "")
-        if template:
-            skills_section += f"**参考模板**：\n```\n{template}\n```\n\n"
+        if description:
+            skills_section += f"**Description**: {description}\n\n"
         
-        notes = skill.get("notes", "")
-        if notes:
-            skills_section += f"**注意事项**：{notes}\n\n"
+        if content:
+            skills_section += content + "\n\n"
         
-        usage_info = skill.get("usage_count", 0)
-        if usage_info > 0:
-            success_rate = skill.get("success_count", 0) / usage_info
-            skills_section += f"*（此经验已被使用 {usage_info} 次，成功率 {success_rate:.0%}）*\n\n"
+        usage_count = skill.get("usage_count", 0)
+        if usage_count > 0:
+            success_rate = skill.get("success_count", 0) / usage_count
+            skills_section += f"*（Used {usage_count} times, success rate {success_rate:.0%}）*\n\n"
         
         skills_section += "---\n\n"
     
@@ -592,37 +677,39 @@ def inject_skills_to_prompt(base_prompt: str, skills: list) -> str:
 
 def update_skill_usage(skill_id: str, agent: str, success: bool):
     """
-    更新技能的使用统计
+    更新技能的使用统计（新格式：目录结构）
     
     Args:
-        skill_id: 技能ID
+        skill_id: 技能ID（即技能目录名）
         agent: Agent名称
         success: 是否成功
     """
-    skill_path = os.path.join(SKILLS_DIR, agent, f"{skill_id}.json")
-    if not os.path.exists(skill_path):
+    # 新格式：skill_id 是目录名
+    skill_dir = os.path.join(SKILLS_DIR, agent, skill_id)
+    metadata_path = os.path.join(skill_dir, "metadata.json")
+    
+    if not os.path.exists(metadata_path):
         return
     
     try:
-        with open(skill_path, "r", encoding="utf-8") as f:
-            skill = json.load(f)
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
         
-        skill["usage_count"] = skill.get("usage_count", 0) + 1
-        skill["total_uses"] = skill.get("total_uses", 0) + 1
+        metadata["usage_count"] = metadata.get("usage_count", 0) + 1
         if success:
-            skill["success_count"] = skill.get("success_count", 0) + 1
+            metadata["success_count"] = metadata.get("success_count", 0) + 1
         
-        skill["last_used"] = datetime.now().isoformat()
+        metadata["last_used"] = datetime.now().isoformat()
         
-        with open(skill_path, "w", encoding="utf-8") as f:
-            json.dump(skill, f, ensure_ascii=False, indent=2)
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
 
 def cleanup_low_quality_skills(min_uses: int = 5, min_success_rate: float = 0.3):
     """
-    清理低质量的技能
+    清理低质量的技能（新格式：目录结构）
     
     Args:
         min_uses: 最少使用次数阈值
@@ -635,20 +722,25 @@ def cleanup_low_quality_skills(min_uses: int = 5, min_success_rate: float = 0.3)
         if not os.path.isdir(agent_path):
             continue
         
-        for filename in os.listdir(agent_path):
-            if not filename.endswith(".json"):
+        for skill_name in os.listdir(agent_path):
+            skill_dir = os.path.join(agent_path, skill_name)
+            if not os.path.isdir(skill_dir):
                 continue
             
-            skill_path = os.path.join(agent_path, filename)
+            metadata_path = os.path.join(skill_dir, "metadata.json")
+            if not os.path.exists(metadata_path):
+                continue
+            
             try:
-                with open(skill_path, "r", encoding="utf-8") as f:
-                    skill = json.load(f)
+                with open(metadata_path, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
                 
-                usage_count = skill.get("usage_count", 0)
+                usage_count = metadata.get("usage_count", 0)
                 if usage_count >= min_uses:
-                    success_rate = skill.get("success_count", 0) / usage_count
+                    success_rate = metadata.get("success_count", 0) / usage_count
                     if success_rate < min_success_rate:
-                        os.remove(skill_path)
+                        import shutil
+                        shutil.rmtree(skill_dir)
                         removed_count += 1
             except Exception:
                 continue
