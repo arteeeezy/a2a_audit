@@ -14,15 +14,8 @@
 
 ```
 a2a-agents/
-├── main.py              # 主程序入口
+├── main.py              # 主程序入口（包含所有 Agent 逻辑）
 ├── meta_loop.py         # 元循环优化系统
-├── captain.py           # 队长 Agent
-├── captain_qwen.py      # Qwen 版本队长
-├── pm.py                # 项目经理 Agent
-├── researcher.py        # 研究员 Agent
-├── analyst.py           # 分析师 Agent
-├── dev.py               # 开发者 Agent
-├── auditor.py           # 审计员 Agent
 ├── utils.py             # 工具函数
 ├── results/             # 任务结果目录
 └── skills/              # 技能库目录
@@ -65,11 +58,6 @@ DASHSCOPE_API_KEY=your_dashscope_api_key
 python main.py
 ```
 
-或在 Windows 上使用批处理文件：
-```bash
-start_all.bat
-```
-
 ### Discord 命令
 
 在 Discord 频道中使用以下命令与 Bot 交互：
@@ -105,13 +93,13 @@ start_all.bat
 
 ### 添加新 Agent
 
-1. 在项目根目录创建新的 Agent 文件（如 `new_agent.py`）
-2. 实现 Agent 的提示词和逻辑
-3. 在 [`main.py`](main.py) 中注册新 Agent
+1. 在 [`main.py`](main.py) 的 `AGENT_CONFIGS` 中添加新 Agent 配置
+2. 定义 Agent 的系统提示词和工具
+3. 元循环系统会自动优化 Agent 的提示词
 
 ### 自定义提示词
 
-Agent 提示词存储在各自的 Python 文件中，可以直接修改或通过元循环系统自动优化。
+Agent 提示词存储在 [`main.py`](main.py) 中，可以直接修改或通过元循环系统自动优化。
 
 ## 许可证
 
